@@ -1,23 +1,29 @@
-name: PR Workflow
+name: CI - Build, Test and Auto-PR for feature/*
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
 
 on:
+  push:
+    branches:
+      - 'feature/**'
   pull_request:
     branches:
+      - develop
       - main
       - release
-      - develop
-    types:
-      - opened
-      - synchronize
-      - reopened
+    types: [opened, synchronize, reopened]
 
 jobs:
   build:
+    name: Build and Test
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v3
@@ -26,15 +32,82 @@ jobs:
           java-version: '17'
 
       - name: Cache Maven packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: ~/.m2/repository
+          path: |
+            ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      - name: Build with Maven
-        run: mvn -B package --file pom.xml
+      - name: Show Java and Maven versions
+        run: |
+          java -version
+          mvn -v
 
-      # - name: Run tests
-      #   run: mvn test
+      - name: Run Maven verify
+        run: mvn -B -V verify --file pom.xml
+
+      - name: Upload test reports (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+
+  create-pr:
+    name: Create PR to develop for feature/*
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/') && needs.build.result == 'success'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create PR to develop if not exists
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const ref = context.ref || '';
+            const headBranch = ref.replace('refs/heads/', '');
+            const baseBranch = 'develop';
+
+            core.info(`Head branch: ${headBranch}, Base branch: ${baseBranch}`);
+
+            // Check if this is indeed a feature branch
+            if (!headBranch.startsWith('feature/')) {
+              core.info('Not a feature branch; skipping PR creation.');
+              return;
+            }
+
+            // Check for existing open PR from this head to base
+            const listResp = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              head: `${owner}:${headBranch}`,
+              base: baseBranch,
+            });
+
+            if (Array.isArray(listResp.data) && listResp.data.length > 0) {
+              core.info(`An open PR already exists: ${listResp.data[0].html_url}`);
+              return;
+            }
+
+            // Create the PR
+            const title = `[feature] ${headBranch} -> ${baseBranch}`;
+            const body = `Automated PR created from branch **${headBranch}** to **${baseBranch}**.\n\nCI passed (build & tests).\n\nIf you'd like to change the base branch, please update the PR.`;
+
+            const pr = await github.rest.pulls.create({
+              owner,
+              repo,
+              title,
+              head: `${owner}:${headBranch}`,
+              base: baseBranch,
+              body,
+            });
+
+            core.info(`Created PR: ${pr.data.html_url}`);
