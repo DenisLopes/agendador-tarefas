@@ -68,6 +68,9 @@ jobs:
       - name: Create PR to develop if not exists
         uses: actions/github-script@v6
         with:
+          # Use a Personal Access Token stored in secrets.ACTIONS_PAT when GITHUB_TOKEN lacks permissions
+          # Create a token with 'repo' scope (or 'public_repo' for public repos) and add it to repo secrets as ACTIONS_PAT.
+          github-token: ${{ secrets.ACTIONS_PAT }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
@@ -76,6 +79,11 @@ jobs:
             const baseBranch = 'develop';
 
             core.info(`Head branch: ${headBranch}, Base branch: ${baseBranch}`);
+
+            // If no custom PAT is provided and GITHUB_TOKEN can't create PRs, this call may fail.
+            if (!process.env.GITHUB_TOKEN && !process.env.ACTIONS_PAT) {
+              core.info('No GITHUB_TOKEN or ACTIONS_PAT available — ensure repository Actions settings allow workflows to create PRs or add a secret named ACTIONS_PAT with a PAT (repo scope).');
+            }
 
             // Check if this is indeed a feature branch
             if (!headBranch.startsWith('feature/')) {
