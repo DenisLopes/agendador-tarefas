@@ -68,9 +68,9 @@ jobs:
       - name: Create PR to develop if not exists
         uses: actions/github-script@v6
         with:
-          # Use a Personal Access Token stored in secrets.ACTIONS_PAT when GITHUB_TOKEN lacks permissions
-          # Create a token with 'repo' scope (or 'public_repo' for public repos) and add it to repo secrets as ACTIONS_PAT.
-          github-token: ${{ secrets.ACTIONS_PAT }}
+          # Use a Personal Access Token stored in secrets.ACTIONS_PAT when available, otherwise fall back to the provided GITHUB_TOKEN.
+          # Create a token with 'repo' scope (or 'public_repo' for public repos) and add it to repo secrets as ACTIONS_PAT if needed.
+          github-token: ${{ secrets.ACTIONS_PAT || github.token }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
